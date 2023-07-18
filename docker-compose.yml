@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+    nginx:
+        image: nginx:latest
+        volumes:
+            - ./:/var/www/
+            - ./.docker/nginx/conf.d/:/etc/nginx/conf.d/
+        ports:
+            - "8080:80"
+        container_name: nginx
+        depends_on:
+           - app
+
+    app:
+        #image: php:8.1-fpm
+        build:
+            context: .
+            dockerfile: .docker/app/Dockerfile
+        volumes:
+            - ./:/var/www/
+        environment:
+            - PHP_IDE_CONFIG=serverName=userRole
+        container_name: app
+        #command: sh -c "chmod -R ug+rwx storage bootstrap/cache"
+
+    maildev:
+        image: maildev/maildev
+        ports:
+            - "8025:1080"
+
+    minio:
+        image: minio/minio
+        command: server /data --console-address ":9091" --address ":9090"
+        ports:
+            - '9090:9090'
+            - '9091:9091'
+        volumes:
+            - ./storage:/data
+        environment:
+            - "MINIO_ROOT_USER=minio"
+            - "MINIO_ROOT_PASSWORD=minio123"
+        healthcheck:
+            test: [ "CMD", "curl", "-f", "http://localhost:9090/minio/health/live" ]
+            interval: 30s
+            timeout: 20s
+            retries: 3
+
+    mc:
+        image: minio/mc
+        depends_on:
+            minio:
+                condition: service_healthy
+        restart: on-failure
+        entrypoint: >
+            /bin/sh -c "
+            /usr/bin/mc alias set myminio http://minio:9090 minio minio123;
+            /usr/bin/mc mb myminio/mybucket;
+            /usr/bin/mc anonymous set public myminio/mybucket;
+            sleep 10000
+            "
+
+    db:
+        image: postgres:latest
+        restart: always
+        volumes:
+            - dbdata:/var/lib/pgsql
+        environment:
+            POSTGRES_USER: root
+            POSTGRES_PASSWORD: password
+            POSTGRES_DB: ${DB_DATABASE}
+        ports:
+            - "5432:5432"
+        container_name: db
+
+    adminer:
+        image: adminer
+        restart: always
+        ports:
+            - 1001:8080
+        depends_on:
+            - db
+        container_name: adminer
+
+    redis:
+        image: redis:6.2-alpine
+        restart: always
+        ports:
+            - '6379:6379'
+        #command: redis-server --save 20 1 --loglevel warning --requirepass eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81
+        volumes:
+            - redis:/data
+
+volumes:
+    redis:
+    dbdata:
+
+
+
+
